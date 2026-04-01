@@ -1,0 +1,33 @@
+# Local data and generated outputs
+data/
+logs/
+.omc/
+outputs/
+runs/
+artifacts/
+
+# Python caches and virtual environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+.venv/
+venv/
+env/
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Model and training artifacts
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.weights
+*.part
+*.log
