@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import math
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -23,6 +24,20 @@ from kwdet_common import (
 
 
 ANGLE_SET = np.arange(0, 180, 12, dtype=float)
+
+
+@dataclass(frozen=True)
+class WakeConfig:
+    candidate_percentile: float = 98.0
+    component_min_area: int = 3
+    min_length_ratio: float = 0.5
+    distance_multiplier: float = 4.0
+    distance_floor_px: float = 16.0
+    coast_buffer_px: float = 2.0
+    angle_tolerance_deg: float = 40.0
+    score_threshold: float = 0.7
+    closing_iterations: int = 1
+    closing_kernel_size: int = 3
 
 
 def build_oriented_kernel(angle_deg: float, size: int = 21, sigma_long: float = 8.0, sigma_short: float = 1.2) -> np.ndarray:
@@ -53,6 +68,7 @@ def best_wake_for_instance(
     water_mask: np.ndarray,
     coast_distance: np.ndarray,
     instance: dict,
+    config: WakeConfig,
 ) -> dict | None:
     ship_cx, ship_cy, ship_w, ship_h, ship_theta = instance["obb_cxcywha"]
     ship_len = max(ship_w, ship_h)
@@ -75,8 +91,12 @@ def best_wake_for_instance(
     response_values = best_response[water_patch]
     if response_values.size == 0:
         return None
-    threshold = float(np.percentile(response_values, 99.0))
+    threshold = float(np.percentile(response_values, config.candidate_percentile))
     candidate_mask = (best_response > threshold) & water_patch
+    if config.closing_iterations > 0:
+        structure = np.ones((config.closing_kernel_size, config.closing_kernel_size), dtype=bool)
+        candidate_mask = ndi.binary_closing(candidate_mask, structure=structure, iterations=config.closing_iterations)
+        candidate_mask &= water_patch
 
     ship_bbox = instance["bbox_xyxy"]
     sx1 = max(int(math.floor(ship_bbox[0])) - x0 - 2, 0)
@@ -108,7 +128,7 @@ def best_wake_for_instance(
             continue
         component_mask = labeled[component_slice] == component_id
         area = int(component_mask.sum())
-        if area < 4:
+        if area < config.component_min_area:
             continue
 
         ys_local, xs_local = np.nonzero(component_mask)
@@ -119,30 +139,31 @@ def best_wake_for_instance(
         coords = np.column_stack([xs, ys])
         obb = pca_obb_from_coords(coords)
         len_wake = max(obb["w"], obb["h"])
-        if len_wake <= 0.5 * ship_len:
+        if len_wake <= config.min_length_ratio * ship_len:
             continue
 
         centroid_x = obb["cx"]
         centroid_y = obb["cy"]
         closest_dist = float(np.min(np.hypot(xs - ship_cx, ys - ship_cy)))
-        if closest_dist >= 2.0 * ship_len:
+        allowed_dist = max(config.distance_multiplier * ship_len, config.distance_floor_px)
+        if closest_dist >= allowed_dist:
             continue
 
         coast_min = float(coast_distance[ys, xs].min())
-        if coast_min < 5.0:
+        if coast_min < config.coast_buffer_px:
             continue
 
         theta_wake_deg = float(math.degrees(obb["theta"]) % 180.0)
         diff_deg = angle_diff_deg(theta_wake_deg, theta_radon)
-        if diff_deg > 20.0:
+        if diff_deg > config.angle_tolerance_deg:
             continue
 
         component_response = best_response[ys_patch, xs_patch]
         response_strength = float(component_response.max() / max(response_values.max(), 1e-6))
         linearity_score = float(np.clip((obb["aspect_ratio"] - 1.0) / 9.0, 0.0, 1.0))
-        radon_agreement = float(np.clip(1.0 - diff_deg / 20.0, 0.0, 1.0))
+        radon_agreement = float(np.clip(1.0 - diff_deg / max(config.angle_tolerance_deg, 1e-6), 0.0, 1.0))
         score = 0.4 * response_strength + 0.3 * linearity_score + 0.3 * radon_agreement
-        if score <= 0.7 or score <= best_score:
+        if score <= config.score_threshold or score <= best_score:
             continue
 
         x_min = float(xs.min())
@@ -174,7 +195,30 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Generate wake pseudolabels from S2SHIPS B08.")
     parser.add_argument("--enhanced", type=Path, default=Path("data/labels/s2ships_enhanced.json"))
     parser.add_argument("--output", type=Path, default=Path("data/labels/wake_pseudolabels.json"))
+    parser.add_argument("--candidate-percentile", type=float, default=98.0)
+    parser.add_argument("--component-min-area", type=int, default=3)
+    parser.add_argument("--min-length-ratio", type=float, default=0.5)
+    parser.add_argument("--distance-multiplier", type=float, default=4.0)
+    parser.add_argument("--distance-floor-px", type=float, default=16.0)
+    parser.add_argument("--coast-buffer-px", type=float, default=2.0)
+    parser.add_argument("--angle-tolerance-deg", type=float, default=40.0)
+    parser.add_argument("--score-threshold", type=float, default=0.7)
+    parser.add_argument("--closing-iterations", type=int, default=1)
+    parser.add_argument("--closing-kernel-size", type=int, default=3)
     args = parser.parse_args()
+
+    config = WakeConfig(
+        candidate_percentile=args.candidate_percentile,
+        component_min_area=args.component_min_area,
+        min_length_ratio=args.min_length_ratio,
+        distance_multiplier=args.distance_multiplier,
+        distance_floor_px=args.distance_floor_px,
+        coast_buffer_px=args.coast_buffer_px,
+        angle_tolerance_deg=args.angle_tolerance_deg,
+        score_threshold=args.score_threshold,
+        closing_iterations=args.closing_iterations,
+        closing_kernel_size=args.closing_kernel_size,
+    )
 
     enhanced = read_json(args.enhanced)
     wake_scenes: list[dict] = []
@@ -189,7 +233,7 @@ def main() -> None:
 
         wakes: list[dict] = []
         for instance in scene_entry["instances"]:
-            candidate = best_wake_for_instance(b08_norm, water_mask, coast_distance, instance)
+            candidate = best_wake_for_instance(b08_norm, water_mask, coast_distance, instance, config)
             if candidate is None:
                 continue
 
@@ -206,8 +250,19 @@ def main() -> None:
     output_payload = {
         "metadata": {
             "source_band": "B08",
-            "score_threshold": 0.7,
+            "score_threshold": config.score_threshold,
             "angle_grid_deg": ANGLE_SET.tolist(),
+            "config": {
+                "candidate_percentile": config.candidate_percentile,
+                "component_min_area": config.component_min_area,
+                "min_length_ratio": config.min_length_ratio,
+                "distance_multiplier": config.distance_multiplier,
+                "distance_floor_px": config.distance_floor_px,
+                "coast_buffer_px": config.coast_buffer_px,
+                "angle_tolerance_deg": config.angle_tolerance_deg,
+                "closing_iterations": config.closing_iterations,
+                "closing_kernel_size": config.closing_kernel_size,
+            },
         },
         "scenes": wake_scenes,
     }
