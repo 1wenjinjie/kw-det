@@ -7,21 +7,10 @@ from pathlib import Path
 import numpy as np
 from imageio.v3 import imwrite
 
-from kwdet_common import BAND_TO_INDEX, AUDIT_DIR, ensure_dir, load_s2ships_data, load_water_mask, read_json
+from kwdet_common import BAND_TO_INDEX, AUDIT_DIR, ensure_dir, load_s2ships_data, load_water_mask, normalize_scene_band, read_json
 
 
 SCORE_BINS = [(0.7, 0.8), (0.8, 0.9), (0.9, 1.01)]
-
-
-def normalize_scene_band(band: np.ndarray, water_mask: np.ndarray) -> np.ndarray:
-    water = water_mask > 0
-    values = band[water]
-    if values.size == 0:
-        return np.zeros_like(band, dtype=np.float32)
-    band = band.astype(np.float32)
-    band_min = float(values.min())
-    band_max = float(values.max())
-    return np.clip((band - band_min) / max(band_max - band_min, 1e-6), 0.0, 1.0)
 
 
 def draw_rectangle(image: np.ndarray, bbox: list[float], color: tuple[int, int, int], thickness: int = 2) -> None:

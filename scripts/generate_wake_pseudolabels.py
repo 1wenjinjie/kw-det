@@ -15,6 +15,7 @@ from kwdet_common import (
     float_round,
     load_s2ships_data,
     load_water_mask,
+    normalize_scene_band,
     pca_obb_from_coords,
     read_json,
     write_json,
@@ -22,17 +23,6 @@ from kwdet_common import (
 
 
 ANGLE_SET = np.arange(0, 180, 12, dtype=float)
-
-
-def normalize_scene_band(band: np.ndarray, water_mask: np.ndarray) -> np.ndarray:
-    water = water_mask > 0
-    values = band[water]
-    if values.size == 0:
-        return np.zeros_like(band, dtype=np.float32)
-    band = band.astype(np.float32)
-    band_min = float(values.min())
-    band_max = float(values.max())
-    return np.clip((band - band_min) / max(band_max - band_min, 1e-6), 0.0, 1.0)
 
 
 def build_oriented_kernel(angle_deg: float, size: int = 21, sigma_long: float = 8.0, sigma_short: float = 1.2) -> np.ndarray:
@@ -82,8 +72,6 @@ def best_wake_for_instance(
         axis=0,
     )
     best_response = response_stack.max(axis=0)
-    if not np.any(water_patch):
-        return None
     response_values = best_response[water_patch]
     if response_values.size == 0:
         return None
@@ -100,7 +88,10 @@ def best_wake_for_instance(
     if candidate_mask.sum() == 0:
         return None
 
+    # Exclude ship body from Radon patch so the peak encodes wake direction,
+    # not the (stronger) ship hull response.
     radon_patch = np.clip(best_response, 0.0, None)
+    radon_patch[sy1:sy2, sx1:sx2] = 0.0
     theta_candidates = np.arange(0, 180, 1, dtype=float)
     sinogram = radon(radon_patch, theta=theta_candidates, circle=False)
     radon_idx = int(np.argmax(sinogram.max(axis=0)))

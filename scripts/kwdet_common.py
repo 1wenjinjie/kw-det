@@ -5,7 +5,7 @@ import math
 import re
 import sqlite3
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 import numpy as np
 import rasterio
@@ -125,6 +125,12 @@ def load_water_mask(scene: str, shape: tuple[int, int] | None = None) -> np.ndar
     with rasterio.open(S2SHIPS_WATER_DIR / f"{scene}_water.tif") as src:
         water = src.read(1)
     if shape is not None:
+        if water.shape[0] < shape[0] or water.shape[1] < shape[1]:
+            raise ValueError(
+                f"Water mask for '{scene}' is {water.shape}, "
+                f"smaller than requested shape {shape}. "
+                "Cannot safely crop to target dimensions."
+            )
         water = water[: shape[0], : shape[1]]
     return water
 
@@ -264,12 +270,13 @@ def float_round(value: float, digits: int = 6) -> float:
     return round(float(value), digits)
 
 
-def iter_pairs(items: Iterable[Any]) -> Iterable[tuple[Any, Any]]:
-    iterator = iter(items)
-    while True:
-        try:
-            first = next(iterator)
-            second = next(iterator)
-        except StopIteration:
-            return
-        yield first, second
+def normalize_scene_band(band: np.ndarray, water_mask: np.ndarray) -> np.ndarray:
+    """Normalize a single spectral band to [0, 1] using water-pixel statistics."""
+    water = water_mask > 0
+    values = band[water]
+    if values.size == 0:
+        return np.zeros_like(band, dtype=np.float32)
+    band = band.astype(np.float32)
+    band_min = float(values.min())
+    band_max = float(values.max())
+    return np.clip((band - band_min) / max(band_max - band_min, 1e-6), 0.0, 1.0)
