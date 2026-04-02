@@ -1,0 +1,69 @@
+# KW-Det project dependencies
+# Captured from: Windows RTX 4060, CUDA 12.4, Python 3.11
+# Install PyTorch first (requires matching CUDA index URL):
+#   pip install torch==2.6.0+cu124 torchvision==0.21.0+cu124 --index-url https://download.pytorch.org/whl/cu124
+
+# Deep learning
+torch==2.6.0+cu124
+torchvision==0.21.0+cu124
+ultralytics==8.3.231
+ultralytics-thop==2.0.18
+
+# Geospatial
+rasterio==1.4.3
+geopandas==1.1.1
+pyproj==3.7.2
+shapely==2.1.2
+fiona==1.10.1
+pyogrio==0.11.1
+affine==2.4.0
+
+# Data / numerics
+numpy==2.3.1
+scipy==1.16.3
+scikit-image==0.26.0
+pandas==2.3.3
+pyarrow==23.0.1
+pycocotools==2.0.11
+
+# Image I/O
+imageio==2.37.3
+pillow==12.0.0
+opencv-python-headless==4.10.0
+
+# Visualisation
+matplotlib==3.10.7
+seaborn==0.13.2
+contourpy==1.3.3
+cycler==0.12.1
+fonttools==4.60.1
+kiwisolver==1.4.9
+pyparsing==3.2.5
+
+# Networking
+requests==2.32.3
+urllib3==2.3.0
+certifi==2025.7.14
+charset-normalizer==3.4.2
+idna==3.10
+
+# Utilities
+tqdm==4.67.1
+rich==14.0.0
+click==8.2.1
+attrs==25.4.0
+packaging==25.0
+typing_extensions==4.14.1
+python-dateutil==2.9.0.post0
+pytz==2025.2
+tzdata==2025.2
+six==1.17.0
+filelock==3.20.0
+fsspec==2025.10.0
+networkx==3.6
+sympy==1.13.1
+mpmath==1.3.0
+MarkupSafe==3.0.3
+jinja2==3.1.6
+psutil==7.1.3
+colorama==0.4.6
